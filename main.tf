@@ -1,13 +1,13 @@
-terraform {
-  required_version = ">= 1.4.0"
+# terraform {
+#   required_version = ">= 1.4.0"
 
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = ">= 3.76.0"
-    }
-  }
-}
+#   required_providers {
+#     azurerm = {
+#       source  = "hashicorp/azurerm"
+#       version = ">= 3.76.0"
+#     }
+#   }
+# }
 
 provider "azurerm" {
   features {}
@@ -113,7 +113,6 @@ module "keyvaults" {
   for_each = var.keyvaults_config
 
   source = "Azure/avm-res-keyvault-vault/azurerm"
-  # version = "x.y.z"
 
   name                = each.key
   location            = each.value.location
@@ -129,13 +128,163 @@ module "keyvaults" {
   tags = each.value.tags
 }
 
-
-# module "avm-res-sql-managedinstance" {
-#   source  = "Azure/avm-res-sql-managedinstance/azurerm"
-#   version = "0.1.0"
-#   # insert the 10 required variables here
+# data "azurerm_subnet" "target" {
+#   name                 = "db"
+#   virtual_network_name = "vnet-spoke"
+#   resource_group_name  = var.sqlmi_config.resource_group_name
+#   depends_on           = [module.vnets]
 # }
 
+data "azurerm_subnet" "all" {
+  for_each = {
+    for subnet in flatten([
+      for env_key, env_val in var.sqlmi_config : [
+        for subnet_key, subnet_name in env_val.subnets : {
+          key                  = "${env_key}.${subnet_key}"
+          name                 = subnet_name
+          virtual_network_name = env_val.vnet_name
+          resource_group_name  = env_val.resource_group_name
+        }
+      ]
+      ]) : subnet.key => {
+      name                 = subnet.name
+      virtual_network_name = subnet.virtual_network_name
+      resource_group_name  = subnet.resource_group_name
+    }
+  }
+  name                 = each.value.name
+  virtual_network_name = each.value.virtual_network_name
+  resource_group_name  = each.value.resource_group_name
+  depends_on           = [module.vnets]
+}
+
+module "sqlmi_primary" {
+  source                       = "Azure/avm-res-sql-managedinstance/azurerm"
+  version                      = "0.1.0"
+  name                         = var.sqlmi_config["primary"].name
+  location                     = var.sqlmi_config["primary"].location
+  administrator_login          = var.sqlmi_config["primary"].administrator_login
+  administrator_login_password = var.sqlmi_config["primary"].administrator_login_password
+  license_type                 = var.sqlmi_config["primary"].license_type
+  subnet_id                    = data.azurerm_subnet.all["primary.db"].id
+  sku_name                     = var.sqlmi_config["primary"].sku_name
+  vcores                       = var.sqlmi_config["primary"].vcores
+  storage_size_in_gb           = var.sqlmi_config["primary"].storage_size_in_gb
+  resource_group_name          = var.sqlmi_config["primary"].resource_group_name
+  managed_identities           = var.sqlmi_config["primary"].managed_identities != null ? var.sqlmi_config["primary"].managed_identities : null
+  # Unexpected attribute: An attribute named "backup_storage_redundancy" is not supported in this avm module. 
+  # AVM module has to downloaded and modified accordingly to configure automated backups using this AVM module.
+  # backup_storage_redundancy    = "Geo"
+  maintenance_configuration_name = "SQL_Default"
+  minimum_tls_version            = "1.2"
+  public_data_endpoint_enabled   = false
+
+  # failover_group is not supported in SQLMI AVM module
+  # failover_group = {
+  #   location = var.sqlmi_config.location
+  #   name = "sqlmi_failovergrp"
+  #   partner_managed_instance_id = azurerm_mssql_managed_instance.sqlmi_secondary.id
+  # }
+
+  depends_on = [module.resource_groups, module.vnets, module.nsgs, module.routetables, module.keyvaults]
+}
+
+module "sqlmi_secondary" {
+  source                         = "Azure/avm-res-sql-managedinstance/azurerm"
+  name                           = var.sqlmi_config["secondary"].name
+  location                       = var.sqlmi_config["secondary"].location
+  administrator_login            = var.sqlmi_config["secondary"].administrator_login
+  administrator_login_password   = var.sqlmi_config["secondary"].administrator_login_password
+  license_type                   = var.sqlmi_config["secondary"].license_type
+  subnet_id                      = data.azurerm_subnet.all["secondary.db"].id
+  sku_name                       = var.sqlmi_config["secondary"].sku_name
+  vcores                         = var.sqlmi_config["secondary"].vcores
+  storage_size_in_gb             = var.sqlmi_config["secondary"].storage_size_in_gb
+  resource_group_name            = var.sqlmi_config["secondary"].resource_group_name
+  managed_identities             = var.sqlmi_config["secondary"].managed_identities != null ? var.sqlmi_config["secondary"].managed_identities : null
+  maintenance_configuration_name = "SQL_Default"
+  minimum_tls_version            = "1.2"
+  public_data_endpoint_enabled   = false
+
+  depends_on = [module.resource_groups, module.vnets, module.nsgs, module.routetables, module.keyvaults]
+}
+
+resource "azurerm_mssql_managed_instance_failover_group" "fog" {
+  name                        = "sqlmi-fog"
+  location                    = var.sqlmi_config["primary"].location
+  managed_instance_id         = module.sqlmi_primary.resource_id
+  partner_managed_instance_id = module.sqlmi_secondary.resource_id
+
+  read_write_endpoint_failover_policy {
+    mode          = "Automatic"
+    grace_minutes = 60
+  }
+}
+
+# Azure Container Registry Module
+module "avm-res-containerregistry" {
+  source              = "Azure/avm-res-containerregistry-registry/azurerm//examples/geo-replication"
+  version             = "0.4.0"
+  admin_enabled = true
+  name = "my-ACR"
+  location = "eastus"
+  sku = "Premium"
+   resource_group_name = "MF_MDIxMI_Github_PROD_RG"
+   zone_redundancy_enabled = true
+   georeplications = [
+    {
+      location = "Canada Central"
+    },
+    {
+      location = "Central India"
+    }
+  ]
+}
+
+# module "avm-res-containerregistry-registry_example_geo-replication" {
+#   source              = "Azure/avm-res-containerregistry-registry/azurerm//examples/geo-replication"
+#   version             = "0.4.0"
+#   name                = var.acr_config.name                # var.cc_core_acr_name
+#   resource_group_name = var.acr_config.resource_group_name #azurerm_resource_group.MF_MDI_CC-RG.name
+#   location            = var.acr_config.location            #azurerm_resource_group.MF_MDI_CC-RG.location
+#   # sku                 = var.acr_config.sku                 # var.cc_core_acr_sku
+#   # admin_enabled       = var.acr_config.admin_enabled
+#   # tags                = local.tag_list_1
+
+#   # zone_redundancy_enabled must be supported in the region. Not all Azure regions support AZs. If unsupported in a region, enabling it will result in an error. 
+#   # Requires Premium SKU. You can set it per geo-replication region as well.
+#   # Best Practices: Use zone-redundant ACR, Integrate with Private Endpoints and Use RBAC and diagnostics logging for security and audit
+
+#   # zone_redundancy_enabled = var.acr_config.zone_redundancy_enabled
+#   georeplications         = var.acr_config.georeplications
+
+#   # georeplications = [
+#   #   {
+#   #     location = "Canada Central"
+#   #     # zone redundancy is enabled by default, and is supported in australia east
+#   #     tags = {
+#   #       environment = "prod"
+#   #       department  = "engineering"
+#   #     }
+#   #   },
+#   #   {
+#   #     location                = "Central India"
+#   #     # zone_redundancy_enabled = var.acr_config.zone_redundancy_enabled
+#   #     tags = {
+#   #       environment = "prod"
+#   #       department  = "engineering"
+#   #     }
+#   #   }
+#   # ]
+
+#   tags = var.acr_config.tags
+
+#   #  The module at module.avm-res-containerregistry-registry_example_geo-replication is a legacy module which contains its own local provider configurations, 
+#   # and so calls to it may not use the count, for_each, or depends_on arguments.
+
+#   # depends_on = [ module.resource_groups, module.vnets, module.nsgs, module.routetables ] 
+
+# }
 
 
 # Module for Azure Container App Environment and Azure Container Apps

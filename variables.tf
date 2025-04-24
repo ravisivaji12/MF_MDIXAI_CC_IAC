@@ -96,6 +96,46 @@ variable "keyvaults_config" {
   }))
 }
 
+variable "sqlmi_config" {
+  description = "Configuration for the SQL Managed Instance"
+  type = map(object({
+    name                         = string
+    location                     = string
+    administrator_login          = string
+    administrator_login_password = string
+    license_type                 = string
+    vnet_name                    = string
+    subnets                      = map(string)
+    sku_name                     = string
+    vcores                       = number
+    storage_size_in_gb           = number
+    resource_group_name          = string
+    managed_identities = object({
+      system_assigned = bool
+      user_assigned   = optional(list(string), [])
+    })
+  }))
+}
+
+# variable "acr_config" {
+#   description = "Full configuration for the Azure Container Registry."
+#   type = object({
+#     name                    = string
+#     resource_group_name     = string
+#     location                = string
+#     sku                     = optional(string, "Premium")
+#     admin_enabled           = optional(bool, false)
+#     # zone_redundancy_enabled = optional(bool, true)
+#     georeplications = optional(list(object({
+#       location                = string
+#       # zone_redundancy_enabled = optional(bool, false)
+#     })), [])
+#     tags = optional(map(string), {})
+#   })
+# }
+
+
+
 
 # resource "azurerm_key_vault" "MF_MDI_CC_CORE-KEY-VAULT" {
 #   name                            = var.cc_core_key_vault

@@ -264,6 +264,77 @@ keyvaults_config = {
   }
 }
 
+sqlmi_config = {
+  primary = {
+    name                         = "mf-dm-prod-sqlmi-primary"
+    location                     = "eastus2"
+    administrator_login          = "sqladmin"
+    administrator_login_password = "YourSecurePassword123!"
+    license_type                 = "LicenseIncluded"
+    vnet_name                    = "vnet-spoke"
+    subnets = {
+      db = "subnet-db"
+      # redis = "subnet-redis"
+    }
+    sku_name            = "GP_Gen5"
+    vcores              = 8
+    storage_size_in_gb  = 32
+    resource_group_name = "MF_MDIxMI_Github_PROD_RG"
+
+    managed_identities = {
+      system_assigned = true
+      user_assigned   = []
+    }
+  }
+  secondary = {
+    name                         = "mf-dm-prod-sqlmi-secondary"
+    location                     = "eastus2"
+    administrator_login          = "sqladmin"
+    administrator_login_password = "YourSecurePassword123!"
+    license_type                 = "LicenseIncluded"
+    vnet_name                    = "vnet-hub"
+    subnets = {
+      db = "subnet-db"
+      # redis = "subnet-redis"
+    }
+    sku_name            = "GP_Gen5"
+    vcores              = 8
+    storage_size_in_gb  = 32
+    resource_group_name = "MF_MDIxMI_Github_PROD_RG"
+
+    managed_identities = {
+      system_assigned = true
+      user_assigned   = []
+    }
+  }
+}
+
+# acr_config = {
+#   name                    = "myacr"
+#   resource_group_name     = "MF_MDIxMI_Github_PROD_RG"
+#   location                = "eastus"
+#   sku                     = "Premium"
+#   admin_enabled           = false
+#   # zone_redundancy_enabled = true
+
+#   georeplications = [
+#     {
+#       location                = "Central India"
+#       # zone_redundancy_enabled = true
+#     },
+#     {
+#       location                = "Canada Central"
+#       # zone_redundancy_enabled = true
+#     }
+#   ]
+
+#   tags = {
+#     environment = "prod"
+#     team        = "devops"
+#   }
+# }
+
+
 
 
 
